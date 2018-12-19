@@ -18,6 +18,11 @@ class LianjiaCrawl(object):
 
 
     def send_get_from_search_tag(self, page_num=""):
+        """
+        抓取对应页面的响应
+        :param page_num:
+        :return:
+        """
         get_url = "https://nj.lianjia.com/ershoufang/pg" + str(page_num) + "rs" + self.search_tag + "/"
         request_headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
@@ -30,6 +35,11 @@ class LianjiaCrawl(object):
 
 
     def parse_houseid_from_html(self, resp_body):
+        """
+        抓取对应每个house响应页面的houseid
+        :param resp_body:
+        :return:
+        """
         result = []
         htmlelement = etree.HTML(resp_body)
         # house_tmp = htmlelement.xpath("//html//body//div[@class='content']")
@@ -41,6 +51,10 @@ class LianjiaCrawl(object):
 
 
     def parse_page_num_from_html(self, resp_body):
+        """
+        :param resp_body:
+        :return: 获取页面搜索结果的总页面数
+        """
         htmlelement = etree.HTML(resp_body)
         page_num_tmp = htmlelement.xpath("""//div//div//div//div//div[@class="page-box house-lst-page-box"]""")
         try:
@@ -51,7 +65,11 @@ class LianjiaCrawl(object):
         return page_num
 
 
-    def parse_houseinfo_from_html(self, resp_body, houseid):
+    def parse_houseinfo_from_html(self, resp_body):
+        """
+        :param resp_body:
+        :return: 输出一个dict,里面是链家爬取下来的房屋信息
+        """
         myparser = etree.HTMLParser(encoding="utf-8")
         htmlelement = etree.HTML(resp_body, parser=myparser)
         title_xpath = """//html//body//div//div//div//div//h1[@class="main"]"""
@@ -88,7 +106,6 @@ class LianjiaCrawl(object):
 
     def send_get_request_from_houseid(self, houseid):
         get_url = "https://nj.lianjia.com/ershoufang/" + houseid + ".html"
-        # get_url = "https://m.lianjia.com/nj/ershoufang/" + houseid + ".html"
         request_headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
             "Accept-Encoding": "gzip, deflate, br",
@@ -100,6 +117,10 @@ class LianjiaCrawl(object):
 
 
     def write_result_to_excel(self):
+        """
+        输出结果到excel
+        :return:
+        """
         wb = xlwt.Workbook(encoding="utf-8")
         sheet_title = self.search_tag + "-" + datetime.datetime.now().strftime("%Y%m%d")
         sheet_title = sheet_title
@@ -136,6 +157,10 @@ class LianjiaCrawl(object):
 
 
     def link_crawl(self):
+        """
+        单线程爬虫
+        :return:
+        """
         resp = self.send_get_from_search_tag()
         page_num = self.parse_page_num_from_html(resp.content)
         for i in range(1, page_num + 1):
@@ -145,23 +170,21 @@ class LianjiaCrawl(object):
         if self.test_flag:
             houseid = self.search_result[0]
             resp2 = self.send_get_request_from_houseid(houseid)
-            result_house_info = self.parse_houseinfo_from_html(resp2.content, houseid)
+            result_house_info = self.parse_houseinfo_from_html(resp2.content)
             self.result[houseid] = result_house_info
         else:
             for houseid in self.search_result:
                 resp2 = self.send_get_request_from_houseid(houseid)
-                result_house_info = self.parse_houseinfo_from_html(resp2.content, houseid)
+                result_house_info = self.parse_houseinfo_from_html(resp2.content)
                 self.result[houseid] = result_house_info
         self.write_result_to_excel()
 
 
     def link_crawl_with_threading(self):
         """
-        resp = self.send_get_from_search_tag()
-        page_num = self.parse_page_num_from_html(resp.content)
-        for i in range(1, page_num + 1):
-            resp = self.send_get_from_search_tag(i)
-            self.parse_houseid_from_html(resp.content)
+        先获取search_tag的结果,多线程拉去获取page_num的houseid,存到一个list里
+        然后获取每个houseid对应页面的houseinformation并存到一个dict里,最后输出到excel
+        :return:
         """
         def process_queue():
             while True:
@@ -196,6 +219,9 @@ class LianjiaCrawl(object):
 
 
     def threaded_crawler(self):
+        """
+        获取每个houseid页面的房屋信息
+        """
         def process_queue():
             while True:
                 try:
@@ -205,7 +231,7 @@ class LianjiaCrawl(object):
                     break
                 else:
                     resp2 = self.send_get_request_from_houseid(houseid)
-                    result_house_info = self.parse_houseinfo_from_html(resp2.content, houseid)
+                    result_house_info = self.parse_houseinfo_from_html(resp2.content)
                     self.result[houseid] = result_house_info
         threads = []
         while threads or self.search_result:

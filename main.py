@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+"""
+author: JosephYan
+Generate excel result from Lianjia website
+"""
 from crawl import LianjiaCrawl
 import time
 
