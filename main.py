@@ -5,6 +5,7 @@ Generate excel result from Lianjia website
 """
 from crawl import LianjiaCrawl
 import time
+from mongocache import MongoQueue
 
 
 def main():
