@@ -78,29 +78,32 @@ class LianjiaCrawl(object):
         total_price_xpath = """//html//body//div//div//div//span[@class="total"]"""
         floor_xpath = """//div//div//div//div[@class="content"]//ul//li//span[@class="label"]"""
         tax_xpath = """//div[@class="transaction"]//div[@class="content"]//ul//li//span"""
-        title = htmlelement.xpath(title_xpath)[0].text.encode("utf-8")
-        house_style = htmlelement.xpath(house_style_xpath)[0].text.encode("utf-8")
-        house_area = htmlelement.xpath(house_style_xpath)[2].text.encode("utf-8").replace("平米", "")
-        community_name = htmlelement.xpath(xiaoqu_xpath)[0].text.encode("utf-8")
-        total_price = htmlelement.xpath(total_price_xpath)[0].text.encode("utf-8")
-        area_price = str(int(float(total_price) / float(house_area) * 10000))
-        floor = htmlelement.xpath(floor_xpath)[1].tail.encode("utf-8")
-        decoration = htmlelement.xpath(floor_xpath)[8].tail.encode("utf-8")  # 装修
-        other_info_1 = htmlelement.xpath(floor_xpath)[9].tail.encode("utf-8")  # 梯户比
-        tax_info = htmlelement.xpath(tax_xpath)[9].text.encode("utf-8")  # 税费
-        result = {
-            "title": title,
-            "total_price": total_price,
-            "house_style": house_style,
-            "house_area": house_area,
-            "area_price": area_price,
-            "floor": floor,
-            "community_name": community_name,
-            "decoration": decoration,
-            "tax_info": tax_info,
-            "other_info_1": other_info_1,
-            "timestamp": datetime.datetime.now().strftime("%Y%m%d"),
-        }
+        try:
+            title = htmlelement.xpath(title_xpath)[0].text.encode("utf-8")
+            house_style = htmlelement.xpath(house_style_xpath)[0].text.encode("utf-8")
+            house_area = htmlelement.xpath(house_style_xpath)[2].text.encode("utf-8").replace("平米", "")
+            community_name = htmlelement.xpath(xiaoqu_xpath)[0].text.encode("utf-8")
+            total_price = htmlelement.xpath(total_price_xpath)[0].text.encode("utf-8")
+            area_price = str(int(float(total_price) / float(house_area) * 10000))
+            floor = htmlelement.xpath(floor_xpath)[1].tail.encode("utf-8")
+            decoration = htmlelement.xpath(floor_xpath)[8].tail.encode("utf-8")  # 装修
+            other_info_1 = htmlelement.xpath(floor_xpath)[9].tail.encode("utf-8")  # 梯户比
+            tax_info = htmlelement.xpath(tax_xpath)[9].text.encode("utf-8")  # 税费
+            result = {
+                "title": title,
+                "total_price": total_price,
+                "house_style": house_style,
+                "house_area": house_area,
+                "area_price": area_price,
+                "floor": floor,
+                "community_name": community_name,
+                "decoration": decoration,
+                "tax_info": tax_info,
+                "other_info_1": other_info_1,
+                "timestamp": datetime.datetime.now().strftime("%Y%m%d"),
+            }
+        except IndexError:
+            result = None
         return result
 
 
@@ -184,7 +187,6 @@ class LianjiaCrawl(object):
         """
         先获取search_tag的结果,多线程拉去获取page_num的houseid,存到一个list里
         然后获取每个houseid对应页面的houseinformation并存到一个dict里,最后输出到excel
-        :return:
         """
         def process_queue():
             while True:
@@ -232,7 +234,8 @@ class LianjiaCrawl(object):
                 else:
                     resp2 = self.send_get_request_from_houseid(houseid)
                     result_house_info = self.parse_houseinfo_from_html(resp2.content)
-                    self.result[houseid] = result_house_info
+                    if result_house_info is not None:
+                        self.result[houseid] = result_house_info
         threads = []
         while threads or self.search_result:
             for thread in threads:
