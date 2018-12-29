@@ -4,16 +4,26 @@ from lxml import etree
 import datetime
 import xlwt
 import threading
+from Mongocache import MongoCache
 
 
 class LianjiaCrawl(object):
-    def __init__(self, search_tag, output_filename, max_threads=10, test_flag=False):
+    def __init__(self, search_tag, output_filename, max_threads=10, **kwargs):
+        """
+        :param search_tag:
+        :param output_filename:
+        :param max_threads:
+        :param kwargs: save_db_flag
+        """
         self.search_tag = search_tag
         self.output_filename = output_filename
         self.search_result = []
         self.result = {}
         self.max_threads = max_threads
-        self.test_flag = test_flag
+        if kwargs.get("save_db_flag") is None:
+            self.save_db_flag = False
+        else:
+            self.save_db_flag = kwargs.get("save_db_flag")
         self.page_num_list = []
 
 
@@ -65,7 +75,7 @@ class LianjiaCrawl(object):
         return page_num
 
 
-    def parse_houseinfo_from_html(self, resp_body):
+    def parse_houseinfo_from_html(self, resp_body, house_id):
         """
         :param resp_body:
         :return: 输出一个dict,里面是链家爬取下来的房屋信息
@@ -102,9 +112,24 @@ class LianjiaCrawl(object):
                 "other_info_1": other_info_1,
                 "timestamp": datetime.datetime.now().strftime("%Y%m%d"),
             }
+            if self.save_db_flag:
+                self.save_house_info_to_mgdb(result, house_id)
         except IndexError:
             result = None
         return result
+
+
+    def save_house_info_to_mgdb(self, result, house_id):
+        mg_test = MongoCache(host="127.0.0.1", port=27017, db_name="test_tmp")
+        record = {
+            "house_id": house_id,
+            "price": result.get("total_price"),
+            "area_price": result.get("area_price"),
+            "time": result.get("timestamp"),
+                  }
+        result["_id"] = house_id
+        mg_test.insert(record, collection="house_daily_price")
+        mg_test.insert(result, collection="house_info")
 
 
     def send_get_request_from_houseid(self, houseid):
@@ -170,16 +195,10 @@ class LianjiaCrawl(object):
             resp = self.send_get_from_search_tag(i)
             search_result_tmp = self.parse_houseid_from_html(resp.content)
             self.search_result.extend(search_result_tmp)
-        if self.test_flag:
-            houseid = self.search_result[0]
+        for houseid in self.search_result:
             resp2 = self.send_get_request_from_houseid(houseid)
-            result_house_info = self.parse_houseinfo_from_html(resp2.content)
+            result_house_info = self.parse_houseinfo_from_html(resp2.content, houseid)
             self.result[houseid] = result_house_info
-        else:
-            for houseid in self.search_result:
-                resp2 = self.send_get_request_from_houseid(houseid)
-                result_house_info = self.parse_houseinfo_from_html(resp2.content)
-                self.result[houseid] = result_house_info
         self.write_result_to_excel()
 
 
@@ -233,7 +252,7 @@ class LianjiaCrawl(object):
                     break
                 else:
                     resp2 = self.send_get_request_from_houseid(houseid)
-                    result_house_info = self.parse_houseinfo_from_html(resp2.content)
+                    result_house_info = self.parse_houseinfo_from_html(resp2.content, houseid)
                     if result_house_info is not None:
                         self.result[houseid] = result_house_info
         threads = []
