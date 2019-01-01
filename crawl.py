@@ -20,12 +20,17 @@ class LianjiaCrawl(object):
         self.search_result = []
         self.result = {}
         self.max_threads = max_threads
-        if kwargs.get("save_db_flag") is None:
-            self.save_db_flag = False
-        else:
-            self.save_db_flag = kwargs.get("save_db_flag")
+        kwargs.setdefault("save_db_flag", True)
+        kwargs.setdefault("save_excel_flag", True)
+        kwargs.setdefault("db_host", "127.0.0.1")
+        kwargs.setdefault("db_port", 27017)
+        kwargs.setdefault("db_name", "test_tmp")
+        self.db_host = kwargs.get("db_host")
+        self.db_port = kwargs.get("db_port")
+        self.db_name = kwargs.get("db_name")
+        self.save_db_flag = kwargs.get("save_db_flag")
+        self.save_excel_flag = kwargs.get("save_excel_flag")
         self.page_num_list = []
-
 
     def send_get_from_search_tag(self, page_num=""):
         """
@@ -43,7 +48,6 @@ class LianjiaCrawl(object):
         resp = requests.get(url=get_url, headers=request_headers, timeout=10)
         return resp
 
-
     def parse_houseid_from_html(self, resp_body):
         """
         抓取对应每个house响应页面的houseid
@@ -59,7 +63,6 @@ class LianjiaCrawl(object):
             result.append(house_id)
         self.search_result.extend(result)
 
-
     def parse_page_num_from_html(self, resp_body):
         """
         :param resp_body:
@@ -73,7 +76,6 @@ class LianjiaCrawl(object):
         except IndexError:
             page_num = ""
         return page_num
-
 
     def parse_houseinfo_from_html(self, resp_body, house_id):
         """
@@ -118,19 +120,24 @@ class LianjiaCrawl(object):
             result = None
         return result
 
-
     def save_house_info_to_mgdb(self, result, house_id):
-        mg_test = MongoCache(host="127.0.0.1", port=27017, db_name="test_tmp")
-        record = {
+        mg_test = MongoCache(host=self.db_host, port=self.db_port, db_name=self.db_name)
+        # 更新house_info表, key "_id" 确保house_info表唯一性
+        result["_id"] = house_id
+        mg_test.insert(result, collection="house_info")
+        # 更新house_daily_price表
+        daily_record = {
             "house_id": house_id,
             "price": result.get("total_price"),
             "area_price": result.get("area_price"),
             "time": result.get("timestamp"),
                   }
-        result["_id"] = house_id
-        mg_test.insert(record, collection="house_daily_price")
-        mg_test.insert(result, collection="house_info")
-
+        res = mg_test.find_one(daily_record, collection="house_daily_price")
+        if res:
+            # daily info already exists
+            pass
+        else:
+            mg_test.insert(daily_record, collection="house_daily_price")
 
     def send_get_request_from_houseid(self, houseid):
         get_url = "https://nj.lianjia.com/ershoufang/" + houseid + ".html"
@@ -142,7 +149,6 @@ class LianjiaCrawl(object):
         }
         resp = requests.get(url=get_url, headers=request_headers, timeout=10)
         return resp
-
 
     def write_result_to_excel(self):
         """
@@ -234,7 +240,8 @@ class LianjiaCrawl(object):
                     threads.append(thread)
             print "初始化数据成功,现在开始爬取数据"
             self.threaded_crawler()
-            self.write_result_to_excel()
+            if self.save_excel_flag:
+                self.write_result_to_excel()
         else:
             print "未找到结果"
 
