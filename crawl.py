@@ -5,7 +5,9 @@ import datetime
 import xlwt
 import threading
 from Mongocache import MongoCache
+import logging
 
+module_logger = logging.getLogger("mainModule.sub")
 
 class LianjiaCrawl(object):
     def __init__(self, search_tag, output_filename, max_threads=10, **kwargs):
@@ -17,7 +19,7 @@ class LianjiaCrawl(object):
         """
         self.search_tag = search_tag
         self.output_filename = output_filename
-        self.search_result = []
+        self.search_result = []     # 存放house_id的list
         self.result = {}
         self.max_threads = max_threads
         kwargs.setdefault("save_db_flag", True)
@@ -25,27 +27,31 @@ class LianjiaCrawl(object):
         kwargs.setdefault("db_host", "127.0.0.1")
         kwargs.setdefault("db_port", 27017)
         kwargs.setdefault("db_name", "test_tmp")
+        kwargs.setdefault("log_filename", "crawl.log")
         self.db_host = kwargs.get("db_host")
         self.db_port = kwargs.get("db_port")
         self.db_name = kwargs.get("db_name")
         self.save_db_flag = kwargs.get("save_db_flag")
         self.save_excel_flag = kwargs.get("save_excel_flag")
         self.page_num_list = []
-
-    def send_get_from_search_tag(self, page_num=""):
-        """
-        抓取对应页面的响应
-        :param page_num:
-        :return:
-        """
-        get_url = "https://nj.lianjia.com/ershoufang/pg" + str(page_num) + "rs" + self.search_tag + "/"
-        request_headers = {
+        self.request_headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
             "Accept-Encoding": "gzip, deflate, br",
             "Accept-Language": "zh-CN,zh;q=0.9",
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.110 Safari/537.36",
         }
-        resp = requests.get(url=get_url, headers=request_headers, timeout=10)
+        self.sess = requests.Session()
+        self.sess.headers.update(self.request_headers)
+        self.logger = logging.getLogger("mainModule.sub.module")
+
+    def send_get_from_search_tag(self, page_num="1"):
+        """
+        搜索结果对应页面的响应
+        :param page_num:
+        :return:
+        """
+        get_url = "https://nj.lianjia.com/ershoufang/pg" + str(page_num) + "rs" + self.search_tag + "/"
+        resp = self.sess.get(url=get_url, timeout=10)
         return resp
 
     def parse_houseid_from_html(self, resp_body):
@@ -73,13 +79,15 @@ class LianjiaCrawl(object):
         try:
             page_num_str = page_num_tmp[0].attrib.get("page-data")
             page_num = eval(page_num_str).get('totalPage')
-        except IndexError:
-            page_num = ""
+        except Exception as e:
+            self.logger.error("Error: %s, parse page num failed from html: %s. Please check search tag!" % (e))
+            # search_tag无结果
+            page_num = 0
         return page_num
 
     def parse_houseinfo_from_html(self, resp_body, house_id):
         """
-        :param resp_body:
+        :param resp_body: 响应页面
         :return: 输出一个dict,里面是链家爬取下来的房屋信息
         """
         myparser = etree.HTMLParser(encoding="utf-8")
@@ -115,8 +123,10 @@ class LianjiaCrawl(object):
                 "timestamp": datetime.datetime.now().strftime("%Y%m%d"),
             }
             if self.save_db_flag:
+                self.logger.info("Now saving data from house_id: %s" % (house_id))
                 self.save_house_info_to_mgdb(result, house_id)
-        except IndexError:
+        except Exception as e:
+            self.logger.error("Error: %s , get data failed from house_id: %s" % (e, house_id))
             result = None
         return result
 
@@ -141,13 +151,7 @@ class LianjiaCrawl(object):
 
     def send_get_request_from_houseid(self, houseid):
         get_url = "https://nj.lianjia.com/ershoufang/" + houseid + ".html"
-        request_headers = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.110 Safari/537.36",
-        }
-        resp = requests.get(url=get_url, headers=request_headers, timeout=10)
+        resp = self.sess.get(url=get_url, timeout=10)
         return resp
 
     def write_result_to_excel(self):
@@ -189,7 +193,7 @@ class LianjiaCrawl(object):
             write_row += 1
         wb.save(self.output_filename)
 
-
+    '''
     def link_crawl(self):
         """
         单线程爬虫
@@ -204,14 +208,17 @@ class LianjiaCrawl(object):
         for houseid in self.search_result:
             resp2 = self.send_get_request_from_houseid(houseid)
             result_house_info = self.parse_houseinfo_from_html(resp2.content, houseid)
-            self.result[houseid] = result_house_info
+            if self.save_excel_flag:
+                self.result[houseid] = result_house_info
         self.write_result_to_excel()
+    '''
 
 
     def link_crawl_with_threading(self):
         """
         先获取search_tag的结果,多线程拉去获取page_num的houseid,存到一个list里
-        然后获取每个houseid对应页面的houseinformation并存到一个dict里,最后输出到excel
+        然后获取每个houseid对应页面的houseinformation并存到一个dict里,
+        最后根据flag是否输出到excel
         """
         def process_queue():
             while True:
@@ -223,9 +230,11 @@ class LianjiaCrawl(object):
                 else:
                     resp2 = self.send_get_from_search_tag(page_num_tmp)
                     self.parse_houseid_from_html(resp2.content)
-        resp = self.send_get_from_search_tag(1)
+        # 根据搜索条件获取搜索结果页面并获取对应页数
+        resp = self.send_get_from_search_tag()
         page_num = self.parse_page_num_from_html(resp.content)
-        if page_num != "":
+        # 多线程拉取每个页面对应的house_id
+        if page_num > 0:
             self.page_num_list = range(1, page_num + 1)
             threads = []
             while threads or self.page_num_list:
@@ -238,12 +247,14 @@ class LianjiaCrawl(object):
                     thread.setDaemon(True)  # 设置为守护线程，完成了之后不管其他的线程有木有完成直接结束
                     thread.start()  # 开始
                     threads.append(thread)
-            print "初始化数据成功,现在开始爬取数据"
+            # 获取所有的house_id成功
+            self.logger.critical("Init data success, total result num is %d" % (len(self.search_result)))
             self.threaded_crawler()
             if self.save_excel_flag:
                 self.write_result_to_excel()
         else:
-            print "未找到结果"
+            # 未找到结果
+            self.logger.error("not found result from search tag %s" %(self.search_tag))
 
 
     def threaded_crawler(self):
@@ -260,7 +271,7 @@ class LianjiaCrawl(object):
                 else:
                     resp2 = self.send_get_request_from_houseid(houseid)
                     result_house_info = self.parse_houseinfo_from_html(resp2.content, houseid)
-                    if result_house_info is not None:
+                    if (result_house_info is not None) and self.save_excel_flag:
                         self.result[houseid] = result_house_info
         threads = []
         while threads or self.search_result:
